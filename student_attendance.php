@@ -1,0 +1,323 @@
+<?php
+if (session_status() === PHP_SESSION_NONE) session_start();
+include "./connect.php";
+
+// Handle table selection via POST and store in session
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['table'])) {
+    $_SESSION['table'] = $_POST['table'];
+    header('Location: student_attendance.php');
+    exit();
+}
+// Use session table or default
+$table = isset($_SESSION['table']) ? $_SESSION['table'] : '28csit_b_attendance';
+
+// Get search and sort parameters
+$search = isset($_GET['search']) ? $_GET['search'] : '';
+$sort = isset($_GET['sort']) && strtolower($_GET['sort']) === 'asc' ? 'asc' : 'desc';
+$next_sort = $sort === 'desc' ? 'asc' : 'desc';
+
+// Calculate attendance points for each student (points = present_sessions)
+$query = "
+    SELECT 
+        register_no,
+        COUNT(*) as total_sessions,
+        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as present_sessions,
+        ROUND((SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
+    FROM $table 
+    WHERE register_no LIKE '%$search%'
+    GROUP BY register_no 
+    ORDER BY present_sessions $sort, register_no
+";
+
+$result = mysqli_query($conn, $query);
+
+// For leaderboard: get all students sorted by points desc
+$leaderboard_query = "
+    SELECT 
+        register_no,
+        COUNT(*) as total_sessions,
+        SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as present_sessions,
+        ROUND((SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
+    FROM $table 
+    GROUP BY register_no 
+    ORDER BY present_sessions DESC, register_no
+";
+$leaderboard_result = mysqli_query($conn, $leaderboard_query);
+$leaderboard = [];
+while ($row = mysqli_fetch_assoc($leaderboard_result)) {
+    $leaderboard[] = $row;
+}
+?>
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+    <?php include "./head.php"; ?>
+    <title>Student Attendance Points - SRKR Engineering College</title>
+</head>
+<body>
+    <!-- Top Bar -->
+    <?php include "nav_top.php"; ?>
+    
+    <!-- Main Header -->
+    <?php include "nav.php"; ?>
+    
+    <!-- Page Title -->
+    <div class="page-title">
+        <div class="container">
+            <h2><i class="fas fa-users"></i> Student Attendance Points</h2>
+            <p>View and search student attendance records</p>
+        </div>
+    </div>
+    
+    <!-- Main Content -->
+    <div class="main-content">
+        <div class="container">
+            <!-- Breadcrumb -->
+            <nav aria-label="breadcrumb" class="mb-4">
+                <ol class="breadcrumb">
+                    <li class="breadcrumb-item"><a href="index.php" style="color: var(--primary-blue);">Home</a></li>
+                    <li class="breadcrumb-item active">Student Attendance Points</li>
+                </ol>
+            </nav>
+            
+            <!-- Action Buttons -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <form method="post" action="attendance_leaderboard.php" style="display:inline;">
+                        <button type="submit" name="table" value="<?php echo htmlspecialchars($table); ?>" class="btn btn-warning">
+                            <i class="fas fa-trophy"></i> Leaderboard
+                        </button>
+                    </form>
+                    <form method="GET" action="" style="display:inline-block; margin-left: 10px;">
+                        <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
+                        <input type="hidden" name="table" value="<?php echo htmlspecialchars($table); ?>">
+                        <button type="submit" name="sort" value="<?php echo $next_sort; ?>" class="btn btn-primary">
+                            Sort by Points: <?php echo $sort === 'desc' ? 'Descending' : 'Ascending'; ?>
+                            <i class="fas fa-sort-<?php echo $sort === 'desc' ? 'down' : 'up'; ?>"></i>
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Search Section -->
+            <div class="card mb-4" style="border: none; box-shadow: 0 2px 10px rgba(0,0,0,0.1); border-radius: 15px;">
+                <div class="card-body">
+                    <form method="GET" action="">
+                        <input type="hidden" name="table" value="<?php echo htmlspecialchars($table); ?>">
+                        <div class="row">
+                            <div class="col-md-8">
+                                <input type="text" name="search" class="form-control" placeholder="Search by Student Registration Number..." value="<?php echo htmlspecialchars($search); ?>" style="border-radius: 25px; padding: 12px 20px;">
+                            </div>
+                            <div class="col-md-4">
+                                <button type="submit" class="btn btn-primary w-100" style="border-radius: 25px; padding: 12px 20px;">
+                                    <i class="fas fa-search"></i> Search
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Results Table -->
+            <div class="card" style="border: none; box-shadow: 0 4px 12px rgba(0,0,0,0.08); border-radius: 15px;">
+                <div class="card-header" style="background: var(--light-blue); border-bottom: 1px solid #e3e6f0; border-radius: 15px 15px 0 0;">
+                    <h5 class="mb-0" style="color: var(--primary-blue); font-weight: 600;">
+                        <i class="fas fa-table"></i> Attendance Records
+                    </h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-hover mb-0">
+                            <thead style="background: var(--light-blue);">
+                                <tr>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600;">Registration No</th>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600; text-align: center;">Attendance Points</th>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600; text-align: center;">Attendance %</th>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600; text-align: center;">Total Sessions</th>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600; text-align: center;">Present Sessions</th>
+                                    <th style="border: none; padding: 15px; color: var(--primary-blue); font-weight: 600; text-align: center;">Absent Sessions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php if (mysqli_num_rows($result) > 0): ?>
+                                    <?php while ($row = mysqli_fetch_assoc($result)): ?>
+                                        <tr style="border-bottom: 1px solid #f0f0f0;">
+                                            <td style="padding: 15px;">
+                                                <form method="post" action="student_attendance_detail.php" style="display:inline;">
+                                                    <input type="hidden" name="reg_no" value="<?php echo htmlspecialchars($row['register_no']); ?>">
+                                                    <button type="submit" class="btn btn-link p-0" style="color: var(--primary-blue); text-decoration: none; font-weight: 500;">
+                                                        <?php echo htmlspecialchars($row['register_no']); ?>
+                                                    </button>
+                                                </form>
+                                            </td>
+                                            <td style="padding: 15px; text-align: center; font-weight: 600;"><?php echo $row['present_sessions']; ?></td>
+                                            <td style="padding: 15px; text-align: center;">
+                                                <span class="badge <?php echo $row['attendance_percentage'] >= 75 ? 'bg-success' : ($row['attendance_percentage'] >= 60 ? 'bg-warning' : 'bg-danger'); ?>">
+                                                    <?php echo $row['attendance_percentage']; ?>%
+                                                </span>
+                                            </td>
+                                            <td style="padding: 15px; text-align: center;"><?php echo $row['total_sessions']; ?></td>
+                                            <td style="padding: 15px; text-align: center;"><?php echo $row['present_sessions']; ?></td>
+                                            <td style="padding: 15px; text-align: center;"><?php echo $row['total_sessions'] - $row['present_sessions']; ?></td>
+                                        </tr>
+                                    <?php endwhile; ?>
+                                <?php else: ?>
+                                    <tr>
+                                        <td colspan="6" class="text-center py-5">
+                                            <i class="fas fa-search" style="font-size: 48px; color: #ddd; margin-bottom: 20px; display: block;"></i>
+                                            <p class="text-muted">No students found matching your search criteria.</p>
+                                            <?php if ($search): ?>
+                                                <p class="text-muted">Try searching with a different registration number.</p>
+                                            <?php endif; ?>
+                                        </td>
+                                    </tr>
+                                <?php endif; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Footer -->
+    <?php include "footer.php"; ?>
+    
+    <style>
+        /* Mobile Responsive Improvements for Student Attendance Page */
+        @media (max-width: 768px) {
+            .btn {
+                padding: 10px 15px;
+                font-size: 13px;
+                margin-bottom: 10px;
+            }
+            
+            .btn + .btn {
+                margin-left: 0;
+            }
+            
+            .form-control {
+                font-size: 16px;
+                padding: 12px 15px;
+            }
+            
+            .table th,
+            .table td {
+                padding: 10px 8px;
+                font-size: 13px;
+            }
+            
+            .badge {
+                font-size: 0.7rem;
+                padding: 4px 8px;
+            }
+            
+            .card-body {
+                padding: 20px 15px;
+            }
+            
+            .card-header {
+                padding: 15px 20px;
+            }
+            
+            .row {
+                margin-left: -10px;
+                margin-right: -10px;
+            }
+            
+            .col-md-8,
+            .col-md-4 {
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+            
+            /* Stack buttons on mobile */
+            .d-flex {
+                flex-direction: column;
+            }
+            
+            .d-flex .btn {
+                width: 100%;
+                margin-left: 0 !important;
+            }
+        }
+        
+        @media (max-width: 576px) {
+            .btn {
+                padding: 8px 12px;
+                font-size: 12px;
+            }
+            
+            .form-control {
+                padding: 10px 12px;
+                font-size: 16px;
+            }
+            
+            .table th,
+            .table td {
+                padding: 8px 6px;
+                font-size: 12px;
+            }
+            
+            .badge {
+                font-size: 0.65rem;
+                padding: 3px 6px;
+            }
+            
+            .card-body {
+                padding: 15px 10px;
+            }
+            
+            .card-header {
+                padding: 12px 15px;
+            }
+            
+            .page-title h2 {
+                font-size: 20px;
+            }
+            
+            .page-title p {
+                font-size: 14px;
+            }
+            
+            /* Hide less important columns on very small screens */
+            .table-responsive {
+                font-size: 11px;
+            }
+        }
+        
+        /* Landscape orientation fixes */
+        @media (max-width: 768px) and (orientation: landscape) {
+            .main-content {
+                padding: 20px 0;
+            }
+        }
+        
+        /* Touch target improvements */
+        .btn-link {
+            min-height: 44px;
+            display: flex;
+            align-items: center;
+        }
+        
+        /* Accessibility improvements */
+        .btn-link:focus {
+            outline: 2px solid var(--primary-blue);
+            outline-offset: 2px;
+        }
+        
+        /* High contrast mode support */
+        @media (prefers-contrast: high) {
+            .table th {
+                background: var(--primary-blue) !important;
+                color: white !important;
+            }
+            
+            .btn-link {
+                color: var(--primary-blue) !important;
+                text-decoration: underline !important;
+            }
+        }
+    </style>
+</body>
+</html> 
