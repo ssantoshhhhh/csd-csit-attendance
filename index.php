@@ -12,7 +12,7 @@ include "./head.php";
     <!-- Page Title -->
     <div class="page-title">
         <div class="container">
-            <h2><i class="fas fa-clipboard-check"></i> SRKR Attendance Portal</h2>
+            <h2><i class="fas fa-clipboard-check"></i> SRKR CSD & CSIT Attendance Portal</h2>
             <p>Select a section to view attendance records</p>
         </div>
     </div>
@@ -23,7 +23,7 @@ include "./head.php";
             <div class="row justify-content-center align-items-stretch">
                 <?php
                 $sections = [
-                                                ['table' => '28csit_a_attendance', 'title' => '2/4 CSIT-A', 'desc' => 'View attendance for 2nd Year, CSIT-A Section', 'icon' => 'fas fa-users'],
+                    ['table' => '28csit_a_attendance', 'title' => '2/4 CSIT-A', 'desc' => 'View attendance for 2nd Year, CSIT-A Section', 'icon' => 'fas fa-users'],
                     ['table' => '28csit_b_attendance', 'title' => '2/4 CSIT-B', 'desc' => 'View attendance for 2nd Year, CSIT-B Section', 'icon' => 'fas fa-users'],
                     ['table' => '28csd_attendance', 'title' => '2/4 CSD', 'desc' => 'View attendance for 2nd Year, CSD Section', 'icon' => 'fas fa-users'],
                     ['table' => '27csit_attendance', 'title' => '3/4 CSIT', 'desc' => 'View attendance for 3rd Year, CSIT Section', 'icon' => 'fas fa-user-graduate'],

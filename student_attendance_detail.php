@@ -2,6 +2,7 @@
 if (session_status() === PHP_SESSION_NONE) session_start();
 include "./connect.php";
 
+
 // Handle reg_no and table via POST and store in session
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['reg_no'])) {
     $_SESSION['reg_no'] = $_POST['reg_no'];

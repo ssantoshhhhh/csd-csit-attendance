@@ -1,10 +1,19 @@
 <?php
+// Enable error reporting for debugging
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+
 if (session_status() === PHP_SESSION_NONE) session_start();
 if (!isset($_SESSION['faculty_logged_in']) || !$_SESSION['faculty_logged_in']) {
     header('Location: attendance_login.php');
     exit();
 }
+
+// Test database connection
 include './connect.php';
+if (!$conn) {
+    die('Database connection failed: ' . mysqli_connect_error());
+}
 
 $classes = [
     '28csit_a_attendance' => '2/4 CSIT-A',
@@ -156,13 +165,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['final_submit'])) {
             
             $changes_text = !empty($changes) ? implode(', ', $changes) : 'No status changes';
             
-            $log_query = "INSERT INTO attendance_modifications (table_name, attendance_date, session, faculty_name, modification_reason, changes_made, modified_at) 
-                         VALUES ('$class', '" . mysqli_real_escape_string($conn, $date) . "', '" . mysqli_real_escape_string($conn, $session) . "', 
-                                '" . mysqli_real_escape_string($conn, $faculty_name) . "', '" . mysqli_real_escape_string($conn, $edit_reason) . "', 
-                                '" . mysqli_real_escape_string($conn, $changes_text) . "', NOW())";
-            mysqli_query($conn, $log_query);
+            // Check if attendance_modifications table exists
+            $table_check = mysqli_query($conn, "SHOW TABLES LIKE 'attendance_modifications'");
+            if (mysqli_num_rows($table_check) > 0) {
+                // Check if changes_made column exists
+                $column_check = mysqli_query($conn, "SHOW COLUMNS FROM attendance_modifications LIKE 'changes_made'");
+                if (mysqli_num_rows($column_check) > 0) {
+                    $log_query = "INSERT INTO attendance_modifications (table_name, attendance_date, session, faculty_name, modification_reason, changes_made, modified_at) 
+                                 VALUES ('$class', '" . mysqli_real_escape_string($conn, $date) . "', '" . mysqli_real_escape_string($conn, $session) . "', 
+                                        '" . mysqli_real_escape_string($conn, $faculty_name) . "', '" . mysqli_real_escape_string($conn, $edit_reason) . "', 
+                                        '" . mysqli_real_escape_string($conn, $changes_text) . "', NOW())";
+                } else {
+                    // Fallback without changes_made column
+                    $log_query = "INSERT INTO attendance_modifications (table_name, attendance_date, session, faculty_name, modification_reason, modified_at) 
+                                 VALUES ('$class', '" . mysqli_real_escape_string($conn, $date) . "', '" . mysqli_real_escape_string($conn, $session) . "', 
+                                        '" . mysqli_real_escape_string($conn, $faculty_name) . "', '" . mysqli_real_escape_string($conn, $edit_reason) . "', NOW())";
+                }
+                
+                $log_result = mysqli_query($conn, $log_query);
+                if (!$log_result) {
+                    // Log the error but don't stop the process
+                    error_log("Failed to log attendance modification: " . mysqli_error($conn));
+                }
+            } else {
+                error_log("attendance_modifications table does not exist");
+            }
         }
         // Save attendance
+        $save_success = true;
         foreach ($all_students as $reg_no) {
             $is_present = in_array($reg_no, $students) ? 1 : 0;
             $date_esc = mysqli_real_escape_string($conn, $date);
@@ -170,18 +200,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['final_submit'])) {
             $reg_esc = mysqli_real_escape_string($conn, $reg_no);
             $faculty_esc = mysqli_real_escape_string($conn, $faculty_name);
             $sql = "INSERT INTO `$class` (attendance_date, session, register_no, status, faculty_name) VALUES ('$date_esc', '$session_esc', '$reg_esc', $is_present, '$faculty_esc') ON DUPLICATE KEY UPDATE status=$is_present, faculty_name='$faculty_esc'";
-            mysqli_query($conn, $sql);
+            $result = mysqli_query($conn, $sql);
+            if (!$result) {
+                $save_success = false;
+                $error = 'Database error: ' . mysqli_error($conn);
+                break;
+            }
         }
-        // Clear the edit reason from session after successful submission
-        unset($_SESSION['edit_reason']);
         
-        // Redirect back to attendance_entry.php with success message
-        $redirect_url = "attendance_entry.php?success=1&class=" . urlencode($class) . 
-                       "&session=" . urlencode($session) . 
-                       "&date=" . urlencode($date) . 
-                       "&faculty=" . urlencode($faculty_name);
-        header('Location: ' . $redirect_url);
-        exit();
+        if ($save_success) {
+            // Clear the edit reason from session after successful submission
+            unset($_SESSION['edit_reason']);
+            
+            // Redirect back to attendance_entry.php with success message
+            $redirect_url = "attendance_entry.php?success=1&class=" . urlencode($class) . 
+                           "&session=" . urlencode($session) . 
+                           "&date=" . urlencode($date) . 
+                           "&faculty=" . urlencode($faculty_name);
+            header('Location: ' . $redirect_url);
+            exit();
+        }
     }
 }
 
@@ -207,11 +245,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['preview']) && !$error
     </div>
     <div class="main-content">
         <div class="container">
-            <?php if ($error): ?>
-                <div class="alert alert-danger" style="border-radius: 10px; margin-bottom: 20px;">
-                    <i class="fas fa-exclamation-triangle"></i> <strong>Error:</strong> <?php echo htmlspecialchars($error); ?>
-                </div>
-            <?php endif; ?>
+                <?php if ($error): ?>
+        <div class="alert alert-danger" style="border-radius: 10px; margin-bottom: 20px;">
+            <i class="fas fa-exclamation-triangle"></i> <strong>Error:</strong> <?php echo htmlspecialchars($error); ?>
+        </div>
+    <?php endif; ?>
+    
+    <?php if (isset($_GET['debug']) && $_GET['debug'] == '1'): ?>
+        <div class="alert alert-info" style="border-radius: 10px; margin-bottom: 20px;">
+            <i class="fas fa-info-circle"></i> <strong>Debug Info:</strong>
+            <ul class="mb-0 mt-2">
+                <li>Edit Mode: <?php echo $is_edit_mode ? 'Yes' : 'No'; ?></li>
+                <li>Show Readonly: <?php echo $show_readonly ? 'Yes' : 'No'; ?></li>
+                <li>Existing Attendance Count: <?php echo count($existing_attendance); ?></li>
+                <li>Session Edit Reason: <?php echo isset($_SESSION['edit_reason']) ? 'Set' : 'Not Set'; ?></li>
+                <li>Selected Class: <?php echo htmlspecialchars($selected_class); ?></li>
+                <li>Selected Date: <?php echo htmlspecialchars($selected_date); ?></li>
+                <li>Selected Session: <?php echo htmlspecialchars($selected_session); ?></li>
+            </ul>
+        </div>
+    <?php endif; ?>
             
             <?php if ($is_edit_mode): ?>
                 <div class="alert alert-info" style="border-radius: 10px; margin-bottom: 20px;">
@@ -228,6 +281,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['preview']) && !$error
             <div class="text-end mb-4">
                 <a href="attendance_entry.php?reset=1" class="btn btn-secondary me-2">
                     <i class="fas fa-refresh"></i> Reset Form
+                </a>
+                <a href="attendance_entry.php?debug=1&class=<?php echo urlencode($selected_class); ?>&session=<?php echo urlencode($selected_session); ?>&date=<?php echo urlencode($selected_date); ?>&faculty=<?php echo urlencode($selected_faculty); ?>" class="btn btn-info me-2">
+                    <i class="fas fa-bug"></i> Debug
                 </a>
                 <a href="attendance_logout.php" class="btn btn-danger">
                     <i class="fas fa-sign-out-alt"></i> Logout
@@ -555,11 +611,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['preview']) && !$error
             checkboxes.forEach(checkbox => {
                 const item = checkbox.closest('.student-checkbox-item');
                 if (checkbox.checked) {
-                    item.style.background = '#e8f4fd';
-                    item.style.borderColor = 'var(--primary-blue)';
+                    item.style.background = '#d4edda';
+                    item.style.borderColor = '#28a745';
                 } else {
-                    item.style.background = '#f8f9fa';
-                    item.style.borderColor = '#e3e6f0';
+                    item.style.background = '#f8d7da';
+                    item.style.borderColor = '#dc3545';
                 }
             });
         }
@@ -579,15 +635,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['preview']) && !$error
             box-shadow: 0 4px 12px rgba(0,0,0,0.15);
         }
         .student-checkbox:checked {
-            background-color: var(--primary-blue);
-            border-color: var(--primary-blue);
+            background-color: #28a745;
+            border-color: #28a745;
+        }
+        
+        .student-checkbox:not(:checked) {
+            background-color: #dc3545;
+            border-color: #dc3545;
         }
         
         .student-checkbox-item:hover {
-            background: #e8f4fd !important;
-            border-color: var(--primary-blue) !important;
+            background: #d4edda !important;
+            border-color: #28a745 !important;
             transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(7,101,147,0.15);
+            box-shadow: 0 4px 12px rgba(40,167,69,0.15);
         }
         
         .student-checkbox-item {

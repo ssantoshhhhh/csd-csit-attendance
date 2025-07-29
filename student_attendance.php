@@ -5,16 +5,44 @@ include "./connect.php";
 // Handle table selection via POST and store in session
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['table'])) {
     $_SESSION['table'] = $_POST['table'];
+    // If this is from HOD dashboard, also store date range
+    if (isset($_POST['hod_view']) && $_POST['hod_view'] == '1') {
+        $_SESSION['start_date'] = $_POST['start_date'] ?? '';
+        $_SESSION['end_date'] = $_POST['end_date'] ?? '';
+        $_SESSION['hod_view'] = true;
+    }
     header('Location: student_attendance.php');
     exit();
 }
 // Use session table or default
 $table = isset($_SESSION['table']) ? $_SESSION['table'] : '28csit_b_attendance';
 
+// Get date range parameters
+$start_date = isset($_SESSION['start_date']) ? $_SESSION['start_date'] : (isset($_GET['start_date']) ? $_GET['start_date'] : '');
+$end_date = isset($_SESSION['end_date']) ? $_SESSION['end_date'] : (isset($_GET['end_date']) ? $_GET['end_date'] : '');
+$is_hod_view = isset($_SESSION['hod_view']) ? $_SESSION['hod_view'] : (isset($_GET['hod_view']) ? $_GET['hod_view'] : false);
+
+// Clear session data after using it
+if ($is_hod_view && isset($_SESSION['hod_view'])) {
+    unset($_SESSION['start_date']);
+    unset($_SESSION['end_date']);
+    unset($_SESSION['hod_view']);
+}
+
 // Get search and sort parameters
 $search = isset($_GET['search']) ? $_GET['search'] : '';
 $sort = isset($_GET['sort']) && strtolower($_GET['sort']) === 'asc' ? 'asc' : 'desc';
 $next_sort = $sort === 'desc' ? 'asc' : 'desc';
+
+// Build date range conditions
+$date_conditions = "";
+if (!empty($start_date) && !empty($end_date)) {
+    $date_conditions = " AND attendance_date BETWEEN '" . mysqli_real_escape_string($conn, $start_date) . "' AND '" . mysqli_real_escape_string($conn, $end_date) . "'";
+} elseif (!empty($start_date)) {
+    $date_conditions = " AND attendance_date >= '" . mysqli_real_escape_string($conn, $start_date) . "'";
+} elseif (!empty($end_date)) {
+    $date_conditions = " AND attendance_date <= '" . mysqli_real_escape_string($conn, $end_date) . "'";
+}
 
 // Calculate attendance points for each student (points = present_sessions)
 $query = "
@@ -24,7 +52,7 @@ $query = "
         SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as present_sessions,
         ROUND((SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
     FROM $table 
-    WHERE register_no LIKE '%$search%'
+    WHERE register_no LIKE '%$search%'$date_conditions
     GROUP BY register_no 
     ORDER BY present_sessions $sort, register_no
 ";
@@ -39,6 +67,7 @@ $leaderboard_query = "
         SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) as present_sessions,
         ROUND((SUM(CASE WHEN status = 1 THEN 1 ELSE 0 END) / COUNT(*)) * 100, 2) as attendance_percentage
     FROM $table 
+    WHERE 1=1$date_conditions
     GROUP BY register_no 
     ORDER BY present_sessions DESC, register_no
 ";
@@ -75,10 +104,65 @@ while ($row = mysqli_fetch_assoc($leaderboard_result)) {
             <!-- Breadcrumb -->
             <nav aria-label="breadcrumb" class="mb-4">
                 <ol class="breadcrumb">
-                    <li class="breadcrumb-item"><a href="index.php" style="color: var(--primary-blue);">Home</a></li>
+                    <?php if ($is_hod_view): ?>
+                        <li class="breadcrumb-item"><a href="hod_dashboard.php" style="color: var(--primary-blue);">HOD Dashboard</a></li>
+                    <?php else: ?>
+                        <li class="breadcrumb-item"><a href="index.php" style="color: var(--primary-blue);">Home</a></li>
+                    <?php endif; ?>
                     <li class="breadcrumb-item active">Student Attendance Points</li>
                 </ol>
             </nav>
+            
+            <?php if ($is_hod_view): ?>
+                <!-- HOD Navigation -->
+                <div class="row mb-4">
+                    <div class="col-12">
+                        <div class="card" style="border: none; box-shadow: 0 4px 16px rgba(7,101,147,0.1); border-radius: 15px;">
+                            <div class="card-header" style="background: var(--light-blue); border-bottom: 1px solid #e3e6f0; border-radius: 15px 15px 0 0;">
+                                <h5 class="mb-0" style="color: var(--primary-blue); font-weight: 600;">
+                                    <i class="fas fa-chart-line"></i> HOD View - Date Range Filter
+                                </h5>
+                            </div>
+                            <div class="card-body p-4">
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <h6 style="color: var(--primary-blue); font-weight: 600;">
+                                            <i class="fas fa-calendar"></i> Selected Date Range:
+                                        </h6>
+                                        <p class="mb-2">
+                                            <?php if (!empty($start_date) && !empty($end_date)): ?>
+                                                <span class="badge bg-info" style="border-radius: 8px;">
+                                                    <i class="fas fa-calendar-day"></i> 
+                                                    <?php echo date('d M Y', strtotime($start_date)); ?> - <?php echo date('d M Y', strtotime($end_date)); ?>
+                                                </span>
+                                            <?php elseif (!empty($start_date)): ?>
+                                                <span class="badge bg-info" style="border-radius: 8px;">
+                                                    <i class="fas fa-calendar-day"></i> 
+                                                    From: <?php echo date('d M Y', strtotime($start_date)); ?>
+                                                </span>
+                                            <?php elseif (!empty($end_date)): ?>
+                                                <span class="badge bg-info" style="border-radius: 8px;">
+                                                    <i class="fas fa-calendar-day"></i> 
+                                                    Until: <?php echo date('d M Y', strtotime($end_date)); ?>
+                                                </span>
+                                            <?php else: ?>
+                                                <span class="badge bg-secondary" style="border-radius: 8px;">
+                                                    <i class="fas fa-calendar"></i> All Records
+                                                </span>
+                                            <?php endif; ?>
+                                        </p>
+                                    </div>
+                                    <div class="col-md-6 text-end">
+                                        <a href="hod_dashboard.php" class="btn btn-primary">
+                                            <i class="fas fa-arrow-left"></i> Back to HOD Dashboard
+                                        </a>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
             
             <!-- Action Buttons -->
             <div class="row mb-4">
@@ -87,10 +171,20 @@ while ($row = mysqli_fetch_assoc($leaderboard_result)) {
                         <button type="submit" name="table" value="<?php echo htmlspecialchars($table); ?>" class="btn btn-warning">
                             <i class="fas fa-trophy"></i> Leaderboard
                         </button>
+                        <?php if ($is_hod_view && (!empty($start_date) || !empty($end_date))): ?>
+                            <input type="hidden" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>">
+                            <input type="hidden" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
+                            <input type="hidden" name="hod_view" value="1">
+                        <?php endif; ?>
                     </form>
                     <form method="GET" action="" style="display:inline-block; margin-left: 10px;">
                         <input type="hidden" name="search" value="<?php echo htmlspecialchars($search); ?>">
                         <input type="hidden" name="table" value="<?php echo htmlspecialchars($table); ?>">
+                        <?php if ($is_hod_view && (!empty($start_date) || !empty($end_date))): ?>
+                            <input type="hidden" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>">
+                            <input type="hidden" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
+                            <input type="hidden" name="hod_view" value="1">
+                        <?php endif; ?>
                         <button type="submit" name="sort" value="<?php echo $next_sort; ?>" class="btn btn-primary">
                             Sort by Points: <?php echo $sort === 'desc' ? 'Descending' : 'Ascending'; ?>
                             <i class="fas fa-sort-<?php echo $sort === 'desc' ? 'down' : 'up'; ?>"></i>
@@ -104,6 +198,11 @@ while ($row = mysqli_fetch_assoc($leaderboard_result)) {
                 <div class="card-body">
                     <form method="GET" action="">
                         <input type="hidden" name="table" value="<?php echo htmlspecialchars($table); ?>">
+                        <?php if ($is_hod_view && (!empty($start_date) || !empty($end_date))): ?>
+                            <input type="hidden" name="start_date" value="<?php echo htmlspecialchars($start_date); ?>">
+                            <input type="hidden" name="end_date" value="<?php echo htmlspecialchars($end_date); ?>">
+                            <input type="hidden" name="hod_view" value="1">
+                        <?php endif; ?>
                         <div class="row">
                             <div class="col-md-8">
                                 <input type="text" name="search" class="form-control" placeholder="Search by Student Registration Number..." value="<?php echo htmlspecialchars($search); ?>" style="border-radius: 25px; padding: 12px 20px;">
